@@ -1,0 +1,730 @@
+# snode1
+# source /liulab/xhuang/miniconda3/bin/activate /liulab/xhuang/miniconda3/envs/MAESTRO
+# module load gcc/7.3.0
+# module load R/3.6.1
+# R
+library('hdf5r',lib.loc='/liulab/zhezhang/software/R/R.3.5.2')
+library(Seurat)
+library(Matrix)
+library(ggplot2)
+library(cowplot)
+library(MAESTRO,lib.loc='/homes/xhuang/R/lib')
+options(bitmapType='cairo')
+
+setwd('/liulab/zhezhang/project/CESC/scRNA/scRNA_Analyses/CellRanger_out/intergation')
+
+###### seurat3 integration of cancer samples ########
+# read matrix
+setwd('/liulab/zhezhang/project/CESC/scRNA/scRNA_Analyses/CellRanger_out/intergation/ca.all')
+p1ca <- Read10X('/tcga/tcga_ATAC_Seq/tcga_ATAC_Seq_processed_data/TCGA-CESC/cesc/scRNA/scRNA_Analyses/CellRanger_out/190608A_1_ai/outs/filtered_feature_bc_matrix')
+p2ca <- Read10X('/tcga/tcga_ATAC_Seq/tcga_ATAC_Seq_processed_data/TCGA-CESC/cesc/scRNA/scRNA_Analyses/CellRanger_out/190608B_A/outs/filtered_feature_bc_matrix')
+p3ca <- Read10X('/tcga/tcga_ATAC_Seq/tcga_ATAC_Seq_processed_data/TCGA-CESC/cesc/scRNA/scRNA_Analyses/CellRanger_out/190608C_A/outs/filtered_feature_bc_matrix')
+p1ca <- p1ca[-grep('^MT-', rownames(p1ca)),]
+p1ca <- CreateSeuratObject(counts = p1ca, project = "p1ca", min.cells = 3)
+p1ca$stim <- "p1ca"
+p1ca$patient <- "P1"
+p1ca$ca_ln <- "CA"
+p1ca <- subset(p1ca, subset = nFeature_RNA > 200)
+p1ca <- NormalizeData(p1ca, verbose = FALSE)
+p1ca <- FindVariableFeatures(p1ca, selection.method = "vst", nfeatures = 10000)
+p2ca <- p2ca[-grep('^MT-', rownames(p2ca)),]
+p2ca <- CreateSeuratObject(counts = p2ca, project = "p2ca", min.cells = 3)
+p2ca$stim <- "p2ca"
+p2ca$patient <- "P2"
+p2ca$ca_ln <- "CA"
+p2ca <- subset(p2ca, subset = nFeature_RNA > 200)
+p2ca <- NormalizeData(p2ca, verbose = FALSE)
+p2ca <- FindVariableFeatures(p2ca, selection.method = "vst", nfeatures = 10000)
+p3ca <- p3ca[-grep('^MT-', rownames(p3ca)),]
+p3ca <- CreateSeuratObject(counts = p3ca, project = "p3ca", min.cells = 3)
+p3ca$stim <- "p3ca"
+p3ca$patient <- "P3"
+p3ca$ca_ln <- "CA"
+p3ca <- subset(p3ca, subset = nFeature_RNA > 200)
+p3ca <- NormalizeData(p3ca, verbose = FALSE)
+p3ca <- FindVariableFeatures(p3ca, selection.method = "vst", nfeatures = 10000)
+# integration
+set.seed(2019)
+ca.anchors <- FindIntegrationAnchors(object.list = list(p1ca,p2ca,p3ca), dims = 1:20,anchor.features = 10000)
+ca.combined <- IntegrateData(anchorset = ca.anchors, dims = 1:20)
+DefaultAssay(ca.combined) <- "integrated"
+ca.combined <- ScaleData(ca.combined, verbose = FALSE)
+ca.combined <- RunPCA(ca.combined, verbose = FALSE)
+ca.combined <- RunUMAP(ca.combined, reduction = "pca", dims = 1:20)
+ca.combined <- FindNeighbors(ca.combined, reduction = "pca", dims = 1:20)
+ca.combined <- FindClusters(ca.combined, resolution = 0.2)
+# plot by different view
+p1 <- DimPlot(ca.combined, reduction = "umap", group.by = "stim")
+p2 <- DimPlot(ca.combined, reduction = "umap", label = TRUE)
+pdf('ca_umap.pdf',width=11,height=4.5)
+plot_grid(p1, p2)
+dev.off()
+p3 <- DimPlot(ca.combined, reduction = "umap", split.by = "stim")
+ggsave("ca_by_patient2.pdf", p3, width=12, height=4)
+p4 <- DimPlot(ca.combined, reduction = "umap", split.by = "patient")
+ggsave("ca_by_patient3.pdf", p4, width=12, height=4)
+# cluster.markers
+cluster.markers.ca <- FindAllMarkers(object = ca.combined, only.pos = TRUE, min.pct = 0.1)
+cluster.markers.ca <- cluster.markers.ca[cluster.markers.ca$p_val_adj<0.01, ]
+# featureplot
+DefaultAssay(ca.combined) <- 'RNA'
+p <- FeaturePlot(ca.combined, features = c("KRT17", "KRT19", "S100A2","MKI67","CDKN2A"),cols=c('grey','red'))
+ggsave("ca_featureplot_scc.pdf", p, width=5.5, height=5)
+p <- FeaturePlot(ca.combined, features = c("CD3D", "CD3E", "CD3G"),cols=c('grey','red'))
+ggsave("ca_featureplot_tcell.pdf", p, width=5.5, height=4)
+p <- FeaturePlot(ca.combined, features = c("G0S2", "FCGR3B", "S100A8","S100A9"),cols=c('grey','red'))
+ggsave("ca_featureplot_neutrophil.pdf", p, width=5.5, height=4)
+p <- FeaturePlot(ca.combined, features = c("CD68", "ITGAM","CSF1R","LYZ","CD14","FSCN1","LAMP3"
+	,"CSF1R","FCGR3A","FCGR1A"),cols=c('grey','red'))
+ggsave("ca_featureplot_MPS.pdf", p, width=15, height=12)
+p <- FeaturePlot(ca.combined, features = c("CDH5", "KDR","PECAM1","PDGFRB","ACTA2","COL1A1","COL1A2"),cols=c('grey','red'))
+ggsave("ca_featureplot_CAF.pdf", p, width=15, height=15)
+p <- FeaturePlot(ca.combined, features = c("CD79A", "CD19","MS4A1"),cols=c('grey','red'))
+ggsave("ca_featureplot_bcell.pdf", p, width=5.5, height=4)
+p <- FeaturePlot(ca.combined, features = c("IGHA2","JCHAIN"),cols=c('grey','red'))
+ggsave("ca_featureplot_plasma.pdf", p, width=6, height=3)
+p <- FeaturePlot(ca.combined, features = c("KIT","TPSAB1"),cols=c('grey','red'))
+ggsave("ca_featureplot_mastcell.pdf", p, width=6, height=3)
+p <- FeaturePlot(ca.combined, features = c("KRT23","MUC6"),cols=c('grey','red'))
+ggsave("ca_featureplot_Epithelia.pdf", p, width=6, height=3)
+# annotation
+current.cluster.ids = as.integer(levels(cluster.markers.ca$cluster))
+zz.cluster.ids <- c('SCC','T cell','Neutrophil','MPS','SCC','CAF','T cell','B cell',
+	'Plasma cell','Mast cell','Endothelium','T cell','Epithelium')
+ca.combined@meta.data$zz.ident = Idents(ca.combined)[rownames(ca.combined@meta.data)]
+ca.combined@meta.data$zz.ident = plyr::mapvalues(x = ca.combined@meta.data$zz.ident,
+                                                         from = current.cluster.ids, to = zz.cluster.ids)
+p <- DimPlot(ca.combined, reduction = "umap", group.by = "zz.ident", label = T,repel = T)
+ggsave("ca_umap_zzident.pdf", p, width=5, height=4.5)
+# heatmap
+# library(gplots)
+# library(reshape2)
+# library(cowplot)
+# mat.heatmap <- GetAssayData(object = ca.combined, slot = "scale.data")
+panel.gene <- c('KRT17','KRT19','S100A2','CD3D','CD3E','CD3G','G0S2','FCGR3B','S100A8','S100A9','CD68','ITGAX','LYZ','CD14','PDGFRB','COL1A2','ACTA2',
+ 	'CD79A','CD79B','MS4A1','IGHA2','IGHM','IGHG1','KIT','TPSAB1','TPSB2','CDH5','KDR','ERG','EPCAM','SLPI')
+# pdf('ca.heatmap.pdf',width=10,height=14)
+# mat.melt <- melt(mat.heatmap[panel.gene ,order(ca.combined@meta.data$zz.ident)])
+# colnames(mat.melt) <- c('Genes','Cells','Counts')
+# cluster <- ca.combined@meta.data$zz.ident
+# names(cluster) <- colnames(mat.melt)
+# Cell_type <- cluster[mat.melt$Cells] 
+# mat.melt$Cell_type <- Cell_type
+# h <- ggplot(mat.melt, aes(Cells,Genes,fill= Counts))+ scale_fill_gradient2(low="blue",mid="#fffdf9", high="red")+geom_tile()+theme(axis.text.x = element_blank(),axis.ticks.x=element_blank())
+# # h <- h + facet_grid(cols=vars(Cell_type), scales = "free", space = "free")
+# h <- ggplot(mat.melt, aes(Cells,Genes,fill= Counts))+ scale_fill_gradient2(low="blue",
+# 	mid="#fffdf9", high="red")+geom_tile()+theme(axis.text.x = element_blank(),
+# 	axis.ticks.x=element_blank())+scale_y_discrete(limits=c('KRT17','KRT19','S100A2','CD3D','CD3E','CD3G','G0S2','FCGR3B','S100A8',
+# 		'S100A9','CD68','ITGAX','LYZ','CD14','PDGFRB','COL1A2','ACTA2','CD79A','CD79B','MS4A1','IGHA2',
+# 		'KIT','TPSAB1','TPSB2','CDH5','KDR','ERG','EPCAM'))+scale_x_discrete(limits=names(summary(met.melt[,2],maxsum = 14681)))
+# 	+facet_grid(cols=vars(Cell_type), scales = "free", space = "free") 
+# mat.bar <- as.character(ca.combined@meta.data$zz.ident)
+# names(mat.bar) <- colnames(ca.combined)
+# mat.bar <- factor(mat.bar)
+# mat.bar <- factor(mat.bar,levels(mat.bar)[c(9,10,7,6,2,1,8,5,3,4)])
+# mat.bar <- sort(mat.bar)
+# mat.bar<- as.data.frame(mat.bar)
+# mat.bar$Cell <- rownames(mat.bar)
+# colnames(mat.bar) <- c('Cell_type','Cell')
+# mat.bar$Cell <- 1:nrow(mat.bar)
+# b <- ggplot(mat.bar,aes(x=Cell,y=0.5,fill=Cell_type))+geom_bar(stat = 'identity', width = 1)
+# b <- b +scale_x_discrete(expand=c(0,0))+theme_void()
+# # b <- b + facet_grid(cols=vars(Cell_type), scales = "free", space = "free")
+# legend <- plot_grid(get_legend(h), get_legend(b), ncol = 1)
+# h <- h + theme(legend.position = "none")
+# b <- b + theme(legend.position = "none")
+# plot <- plot_grid(b, h, align = "v", ncol = 1, axis = "tblr", rel_heights = c(0.3, 15))
+# plot_grid(plot, legend, nrow = 1, rel_widths = c(10, 1.5))
+# dev.off()
+# or byseurat
+p <- DoHeatmap(ca.combined, features = panel.gene,group.by = "zz.ident",angle = 60,size = 3.5)
+p<- p+scale_fill_gradientn(colors = c("blue", "white", "red"))
+ggsave('ca.heatmap.seurat.pdf', p, width=12, height=12)
+# dotplot
+
+# DotPlot(ca.combined, features = panel.gene, group.by='zz.ident',cols = c("blue", "red"), dot.scale = 8)
+p <- DotPlot(ca.combined, features = panel.gene, group.by='zz.ident',cols = c("blue", "red"), dot.scale = 8)+ RotatedAxis()
+ggsave('ca.dotplot.seurat.pdf', p, width=12, height=8)
+# VolPlot
+p <- VlnPlot(ca.combined, features = panel.gene, group.by='zz.ident', pt.size = 0)
+ggsave('ca.vlnplot.seurat.pdf', p, width=13, height=36)
+
+# hpv16
+hpv16ca1 <- Read10X('/tcga/tcga_ATAC_Seq/tcga_ATAC_Seq_processed_data/TCGA-CESC/cesc/sc/scRNA_Analyses/CellRanger_hpv16_out/190608A_1_ai/outs/filtered_feature_bc_matrix')
+hpv16ca2 <- Read10X('/tcga/tcga_ATAC_Seq/tcga_ATAC_Seq_processed_data/TCGA-CESC/cesc/sc/scRNA_Analyses/CellRanger_hpv16_out/190608B_A/outs/filtered_feature_bc_matrix')
+hpv16ca3 <- Read10X('/tcga/tcga_ATAC_Seq/tcga_ATAC_Seq_processed_data/TCGA-CESC/cesc/sc/scRNA_Analyses/CellRanger_hpv16_out/190608C_A/outs/filtered_feature_bc_matrix')
+colnames(hpv16ca1) <- paste0(colnames(hpv16ca1),'_1')
+colnames(hpv16ca2) <- paste0(colnames(hpv16ca2),'_2')
+colnames(hpv16ca3) <- paste0(colnames(hpv16ca3),'_3')
+hpv16 <- colnames(ca.combined) %in% c(colnames(hpv16ca1),colnames(hpv16ca2),colnames(hpv16ca3))
+ca.combined@meta.data$hpv16 <- hpv16
+summary(ca.combined@meta.data)
+ca.combined@meta.data$hpv16v2 <- 3
+ca.combined@meta.data$hpv16v2[which(ca.combined@meta.data$zz.ident=='SCC')] <- 2
+ca.combined@meta.data$hpv16v2[intersect(which(ca.combined@meta.data$hpv16=='TRUE'),which(ca.combined@meta.data$zz.ident=='SCC'))] <- 1
+p <- DimPlot(ca.combined, reduction = "umap", group.by = "hpv16",cols =c('grey','purple'))
+ggsave("ca_by_hpv16.pdf", p, width=5, height=4.5)
+p <- DimPlot(ca.combined, reduction = "umap", group.by = "hpv16",cols =c('grey','purple'),order='hpv16')
+ggsave("ca_by_hpv16_order.pdf", p, width=5, height=4.5)
+# differenial expression by seurat
+project <- 'hpv16.in.ca'
+if (file.exists(project)){
+    setwd(file.path('/liulab/zhezhang/project/CESC/scRNA/scRNA_Analyses/CellRanger_out/intergation/ca.all/', project))
+} else {
+    dir.create(file.path('/liulab/zhezhang/project/CESC/scRNA/scRNA_Analyses/CellRanger_out/intergation/ca.all/', project))
+    setwd(file.path('/liulab/zhezhang/project/CESC/scRNA/scRNA_Analyses/CellRanger_out/intergation/ca.all/', project))
+}
+hpv16.DE.SCC <- FindMarkers(ca.combined, ident.1 = "TRUE", ident.2 = "FALSE", group.by = 'hpv16')
+head(hpv16.DE.SCC)
+hpv16.DE.SCC <- hpv16.DE.SCC[which(hpv16.DE.SCC[,'p_val_adj']<0.01),]
+write.table(hpv16.DE.SCC, 'hpv16.DE.SCC.txt',sep='\t')
+hpv16.DE.SCC.high <- hpv16.DE.SCC[which(hpv16.DE.SCC[,'avg_logFC']>0),]
+hpv16.DE.SCC.high <- hpv16.DE.SCC.high[order(hpv16.DE.SCC.high$avg_logFC,decreasing=T),]
+hpv16.DE.SCC.low <- hpv16.DE.SCC[which(hpv16.DE.SCC[,'avg_logFC']<0),]
+hpv16.DE.SCC.low <- hpv16.DE.SCC.low[order(hpv16.DE.SCC.low$avg_logFC,decreasing=F),]
+# volcano_plot
+library(ggrepel)
+gene_list <- c('IGHM','IGHG1','IGHG2','IGHG3','IGHA1','IGHG4','IFNG','HLA-DP','HLA-C',
+	'HLA-DQA2','HLA-DQA1','HLA-DQB1','HLA-DPB1','HLA-DRB1','HLA-DRA')
+vp <- hpv16.DE.SCC 
+hl <- rownames(vp) %in% gene_list
+vp$high_light <- hl
+p <- ggplot(vp) +geom_point(aes(x=avg_logFC, y=-log10(p_val_adj),colour=high_light )) 
+p <- p + scale_color_manual(values=c('grey','red')) 
+p <- p + geom_hline(yintercept=2, linetype="dashed", color = "red") + geom_vline(xintercept = c(0.5,-0.5), linetype="dashed", color = "red")
+p <- p + geom_text_repel(aes(x = avg_logFC, y = -log10(p_val_adj), label =ifelse(high_light == TRUE, rownames(vp),"")))
+p <- p + xlab("log2 fold change") + ylab("-log10 adjusted p-value") 
+p <- p + scale_y_continuous(limits = c(0,300)) + theme(legend.position = "none", 
+	plot.title = element_text(size = rel(1.5), hjust = 0.5),
+	axis.title = element_text(size = rel(1.25)))  
+p <- p + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+	panel.background = element_blank(),axis.line = element_line(colour = "black"))
+ggsave(paste0('HPV16','.volcano.pdf'), p, width=8, height=8)
+# go_by_clusterProfiler
+library(org.Hs.eg.db)
+library(clusterProfiler)
+gene <- rownames(hpv16.DE.SCC.high)
+project <- 'hpv16.DE.SCC.high'
+go2plot <- function(gene,project){
+	# gene is a gene list, their name should be official_gene_symbol
+	gene.df <- bitr(gene, fromType = "SYMBOL",toType = c("ENTREZID"),OrgDb = org.Hs.eg.db)
+	ego1 <- enrichGO(gene = gene,OrgDb= org.Hs.eg.db,keyType= 'SYMBOL',ont= "BP",pAdjustMethod = "BH",pvalueCutoff= 0.01,qvalueCutoff  = 0.05)
+	ego2 <- enrichGO(gene = gene,OrgDb= org.Hs.eg.db,keyType= 'SYMBOL',ont= "CC",pAdjustMethod = "BH",pvalueCutoff= 0.01,qvalueCutoff  = 0.05)
+	ego3 <- enrichGO(gene = gene,OrgDb= org.Hs.eg.db,keyType= 'SYMBOL',ont= "MF",pAdjustMethod = "BH",pvalueCutoff= 0.01,qvalueCutoff  = 0.05)
+# ego1 <- as.data.frame(ego1[1:15,])
+# ego1[,'Description'] <- factor(ego1[,'Description'])
+# Description.levels <- as.vector(ego1[,'Description'])
+# ego1[,'Description'] <- factor(ego1[,'Description'],levels=Description.levels)
+# p <- ggplot(data = ego1, aes(x = Gene,y=Description)) + geom_point(aes(size = Count, color =p.adjust)) +scale_color_gradient(low = 'blue', high = 'red')
+# p <- p+theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),panel.background = element_blank(), 
+# 	axis.line = element_line(colour = "black"),axis.text.y = element_text(angle = -15,vjust=1))
+	p1 <- dotplot(ego1, showCategory=15)+theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),panel.background = element_blank(), 
+		axis.line = element_line(colour = "black"))
+	write.table(ego1,paste0(project,'_go_bp.txt'),sep='\t')
+	ggsave(paste0(project,'_go_bp.pdf'), p1, width=10, height=4.5)
+	p2 <- dotplot(ego2, showCategory=15)+theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),panel.background = element_blank(), 
+		axis.line = element_line(colour = "black"))
+	write.table(ego2,paste0(project,'_go_cc.txt'),sep='\t')
+	ggsave(paste0(project,'_go_cc.pdf'), p2, width=10, height=4.5)
+	p3 <- dotplot(ego3, showCategory=15)+theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),panel.background = element_blank(), 
+		axis.line = element_line(colour = "black"))
+	write.table(ego3,paste0(project,'_go_mf.txt'),sep='\t')
+	ggsave(paste0(project,'_go_mf.pdf'), p3, width=10, height=4.5)
+}
+go2plot(gene=gene, project=project)
+go2plot(gene=rownames(hpv16.DE.SCC.low), project='hpv16.DE.SCC.low')
+# differenial expression by DEseq (too slow over 24h)
+# library(DESeq2)
+# p1ca <- Read10X('/tcga/tcga_ATAC_Seq/tcga_ATAC_Seq_processed_data/TCGA-CESC/cesc/scRNA/scRNA_Analyses/CellRanger_out/190608A_1_ai/outs/filtered_feature_bc_matrix')
+# p2ca <- Read10X('/tcga/tcga_ATAC_Seq/tcga_ATAC_Seq_processed_data/TCGA-CESC/cesc/scRNA/scRNA_Analyses/CellRanger_out/190608B_A/outs/filtered_feature_bc_matrix')
+# p3ca <- Read10X('/tcga/tcga_ATAC_Seq/tcga_ATAC_Seq_processed_data/TCGA-CESC/cesc/scRNA/scRNA_Analyses/CellRanger_out/190608C_A/outs/filtered_feature_bc_matrix')
+# p1ca <- p1ca[-grep('^MT-', rownames(p1ca)),]
+# colnames(p1ca) <- paste0(colnames(p1ca),'_1')
+# p2ca <- p2ca[-grep('^MT-', rownames(p2ca)),]
+# colnames(p2ca) <- paste0(colnames(p2ca),'_2')
+# p3ca <- p3ca[-grep('^MT-', rownames(p3ca)),]
+# colnames(p3ca) <- paste0(colnames(p3ca),'_3')
+# count <- cbind(p1ca,p2ca,p3ca)
+# count <- count[,colnames(ca.combined)[which(ca.combined@meta.data$zz.ident=='SCC')]]
+# count <- apply(as.matrix(count),2,as.numeric)
+# count <- count[which(rowSums(count)>0),]
+# coldata <- matrix(NA, ncol(count),1)
+# rownames(coldata) <- colnames(count)
+# colnames(coldata) <- 'condition'
+# hpv16 <- colnames(count) %in% c(colnames(hpv16ca1),colnames(hpv16ca2),colnames(hpv16ca3))
+# coldata[,1] <- hpv16
+# dds <- DESeqDataSetFromMatrix(count, coldata, design= ~ condition)
+# dds <- DESeq(dds)
+# res<- results(dds)
+# res <- na.omit(res)
+# # FDR<0.01
+# res <- res[res[,6]<0.01,]
+# # abs(lfc)>1
+# res <- res[abs(res[,2])>1,]
+setwd('/liulab/zhezhang/project/CESC/scRNA/scRNA_Analyses/CellRanger_out/intergation/ca.all')
+# saveRDS(ca.combined,'ca.combined.rds')
+# saveRDS(cluster.markers.ca,'cluster.markers.ca.rds')
+ca.combined <- readRDS('ca.combined.rds')
+cluster.markers.ca <- readRDS('cluster.markers.ca.rds')
+
+# 3D plot
+# library(plotly)
+# library(htmlwidgets)
+# ca.combined <- readRDS('ca.combined.rds')
+# test <- RunUMAP(ca.combined, reduction = "pca", dims = 1:20,n.components=3L)
+# emb <- as.data.frame(Embeddings(object = test, reduction = "umap"))
+# color.use <- test@meta.data$zz.ident
+# p <- plot_ly(emb, x = ~UMAP_1, y = ~UMAP_2, z = ~UMAP_3, color = color.use,size = I(1))
+# htmlwidgets::saveWidget(p,'try.html')
+
+# InferCNV
+library(infercnv)
+setwd('/liulab/zhezhang/project/CESC/scRNA/scRNA_Analyses/CellRanger_out/intergation')
+p1ca <- Read10X('/tcga/tcga_ATAC_Seq/tcga_ATAC_Seq_processed_data/TCGA-CESC/cesc/scRNA/scRNA_Analyses/CellRanger_out/190608A_1_ai/outs/filtered_feature_bc_matrix')
+p2ca <- Read10X('/tcga/tcga_ATAC_Seq/tcga_ATAC_Seq_processed_data/TCGA-CESC/cesc/scRNA/scRNA_Analyses/CellRanger_out/190608B_A/outs/filtered_feature_bc_matrix')
+p3ca <- Read10X('/tcga/tcga_ATAC_Seq/tcga_ATAC_Seq_processed_data/TCGA-CESC/cesc/scRNA/scRNA_Analyses/CellRanger_out/190608C_A/outs/filtered_feature_bc_matrix')
+colnames(p1ca) <- paste0(colnames(p1ca),'_1')
+colnames(p2ca) <- paste0(colnames(p2ca),'_2')
+colnames(p3ca) <- paste0(colnames(p3ca),'_3')
+ca.combined <- readRDS('/liulab/zhezhang/project/CESC/scRNA/scRNA_Analyses/CellRanger_out/intergation/ca.all/ca.combined.rds')
+
+epi <- colnames(ca.combined)[which(ca.combined@meta.data$zz.ident %in% c('SCC','Epithelium')=='TRUE')]
+raw_counts_matrix <- cbind(p1ca,p2ca,p3ca)
+raw_counts_matrix <- raw_counts_matrix[,epi]
+annotations_file <- cbind(epi, as.character(ca.combined@meta.data$zz.ident)[which(ca.combined@meta.data$zz.ident %in% c('SCC','Epithelium')=='TRUE')])
+write.table(annotations_file,'annotations_file.txt',sep='\t',quote = F,row.names=F, col.names=F)
+annotations_file <- '/liulab/zhezhang/project/CESC/scRNA/scRNA_Analyses/CellRanger_out/intergation/annotations_file.txt'
+gene_order_file <- '/liulab/CROPSEQ-scRNA/reference/human/inferCNV/gencode_v19_gene_pos.txt'
+infercnv_obj = CreateInfercnvObject(raw_counts_matrix=raw_counts_matrix,
+                                    annotations_file=annotations_file ,
+                                    delim="\t",
+                                    gene_order_file=gene_order_file,
+                                    ref_group_names='Epithelium')
+infercnv_obj = infercnv::run(infercnv_obj,
+                             cutoff=0,  # use 1 for smart-seq, 0.1 for 10x-genomics
+                             out_dir="infercnv_output_ca",  # dir is auto-created for storing outputs
+                             cluster_by_groups=T,   # cluster
+                             denoise=T,
+                             HMM=T
+                             )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+###### seurat3 integration of lymph node samples ########
+# read matrix
+setwd('/liulab/zhezhang/project/CESC/scRNA/scRNA_Analyses/CellRanger_out/intergation/ln.all')
+set.seed(2019)
+p1ln <- Read10X('/tcga/tcga_ATAC_Seq/tcga_ATAC_Seq_processed_data/TCGA-CESC/cesc/scRNA/scRNA_Analyses/CellRanger_out/190608A_2_linba/outs/filtered_feature_bc_matrix')
+p2ln <- Read10X('/tcga/tcga_ATAC_Seq/tcga_ATAC_Seq_processed_data/TCGA-CESC/cesc/scRNA/scRNA_Analyses/CellRanger_out/190608B_L/outs/filtered_feature_bc_matrix')
+p3ln <- Read10X('/tcga/tcga_ATAC_Seq/tcga_ATAC_Seq_processed_data/TCGA-CESC/cesc/scRNA/scRNA_Analyses/CellRanger_out/190608C_L/outs/filtered_feature_bc_matrix')
+p1ln <- p1ln[-grep('^MT-', rownames(p1ln)),]
+p1ln <- CreateSeuratObject(counts = p1ln, project = "p1ln", min.cells = 3)
+p1ln$stim <- "p1ln"
+p1ln$patient <- "P1"
+p1ln$ca_ln <- "LN"
+p1ln <- subset(p1ln, subset = nFeature_RNA > 200)
+p1ln <- NormalizeData(p1ln, verbose = FALSE)
+p1ln <- FindVariableFeatures(p1ln, selection.method = "vst", nfeatures = 10000)
+p2ln <- p2ln[-grep('^MT-', rownames(p2ln)),]
+p2ln <- CreateSeuratObject(counts = p2ln, project = "p2ln", min.cells = 3)
+p2ln$stim <- "p2ln"
+p2ln$patient <- "P2"
+p2ln$ca_ln <- "LN"
+p2ln <- subset(p2ln, subset = nFeature_RNA > 200)
+p2ln <- NormalizeData(p2ln, verbose = FALSE)
+p2ln <- FindVariableFeatures(p2ln, selection.method = "vst", nfeatures = 10000)
+p3ln <- p3ln[-grep('^MT-', rownames(p3ln)),]
+p3ln <- CreateSeuratObject(counts = p3ln, project = "p3ln", min.cells = 3)
+p3ln$stim <- "p3ln"
+p3ln$patient <- "P3"
+p3ln$ca_ln <- "LN"
+p3ln <- subset(p3ln, subset = nFeature_RNA > 200)
+p3ln <- NormalizeData(p3ln, verbose = FALSE)
+p3ln <- FindVariableFeatures(p3ln, selection.method = "vst", nfeatures = 10000)
+ln.anchors <- FindIntegrationAnchors(object.list = list(p1ln,p2ln,p3ln), dims = 1:15,anchor.features = 10000)
+ln.combined <- IntegrateData(anchorset = ln.anchors, dims = 1:15)
+DefaultAssay(ln.combined) <- "integrated"
+ln.combined <- ScaleData(ln.combined, verbose = FALSE)
+ln.combined <- RunPCA(ln.combined, verbose = FALSE)
+ln.combined <- RunUMAP(ln.combined, reduction = "pca", dims = 1:15)
+ln.combined <- FindNeighbors(ln.combined, reduction = "pca", dims = 1:15)
+ln.combined <- FindClusters(ln.combined, resolution = 0.8)
+# plot by different view
+p1 <- DimPlot(ln.combined, reduction = "umap", group.by = "stim")
+p2 <- DimPlot(ln.combined, reduction = "umap", label = TRUE)
+pdf('ln_by_patient.pdf',width=11,height=4.5)
+plot_grid(p1, p2)
+dev.off()
+p3 <- DimPlot(ln.combined, reduction = "umap", split.by = "stim")
+ggsave("ln_by_patient2.pdf", p3, width=16, height=8)
+p4 <- DimPlot(ln.combined, reduction = "umap", split.by = "patient")
+ggsave("ln_by_patient3.pdf", p4, width=12, height=4)
+# cluster.markers
+cluster.markers.ln <- FindAllMarkers(object = ln.combined, only.pos = TRUE, min.pct = 0.1)
+# featureplot
+DefaultAssay(ln.combined) <- 'RNA'
+p <- FeaturePlot(ln.combined, features = c("KRT17", "KRT19", "S100A2","MKI67","CDKN2A"),cols=c('grey','red'))
+ggsave("ln_featureplot_scc.pdf", p, width=5.5, height=5)
+p <- FeaturePlot(ln.combined, features = c("CD3D", "CD3E", "CD3G"),cols=c('grey','red'))
+ggsave("ln_featureplot_tcell.pdf", p, width=5.5, height=4)
+p <- FeaturePlot(ln.combined, features = c("CD68", "ITGAM","CSF1R","LYZ","CD14","FSCN1","BIRC3","LAMP3"
+	,"CSF1R","FCGR3A","FCGR1A"),cols=c('grey','red'))
+ggsave("ln_featureplot_MPS.pdf", p, width=15, height=12)
+p <- FeaturePlot(ln.combined, features = c("CDH5", "KDR","PECAM1","PDGFRB","ACTA2","COL1A1","COL1A2"),cols=c('grey','red'))
+ggsave("ln_featureplot_CAF.pdf", p, width=15, height=15)
+p <- FeaturePlot(ln.combined, features = c("CD79A", "CD19","MS4A1"),cols=c('grey','red'))
+ggsave("ln_featureplot_bcell.pdf", p, width=5.5, height=4)
+p <- FeaturePlot(ln.combined, features = c("IGHA2","JCHAIN"),cols=c('grey','red'))
+ggsave("ln_featureplot_plasma.pdf", p, width=6, height=3)
+# annotation
+current.cluster.ids = as.integer(levels(cluster.markers.ln$cluster))
+# zz.cluster.ids <- c('B cell','B cell','T cell','T cell','T cell','T cell','T cell','T cell','T cell',
+# 	'T cell','T cell','B cell','B cell','T cell','MPS','MPS','B cell','T cell','Neutrophil','CAF','pDC','CAF','SCC','Epithelium')
+zz.cluster.ids <- c('B cell','B cell','T cell','T cell','T cell','T cell','T cell','T cell','T cell',
+	'T cell','T cell','B cell','B cell','T cell','B cell','B cell','B cell','T cell','MPS','CAF','MPS','CAF','SCC','MPS')
+
+ln.combined@meta.data$zz.ident = Idents(ln.combined)[rownames(ln.combined@meta.data)]
+ln.combined@meta.data$zz.ident = plyr::mapvalues(x = ln.combined@meta.data$zz.ident,
+                                                         from = current.cluster.ids, to = zz.cluster.ids)
+p <- DimPlot(ln.combined, reduction = "umap", group.by = "zz.ident", label = T,repel = T)
+ggsave("ln_umap_zzident.pdf", p, width=5, height=4.5)
+panel.gene <- c('CD79A','CD79B','MS4A1','IGHM','IGHG1',
+	'CD3D','CD3E','CD3G',
+	'LYZ','CD68','ITGAX',
+	'PDGFRB','COL1A2','ACTA2',
+	'KRT17','KRT19','S100A2')
+p <- DoHeatmap(ln.combined, features = panel.gene,group.by = "zz.ident",angle = 60,size = 3.5)
+p<- p+scale_fill_gradientn(colors = c("blue", "white", "red"))
+ggsave('ln.heatmap.seurat.pdf', p, width=12, height=12)
+# dotplot
+p <- DotPlot(ln.combined, features = panel.gene, group.by='zz.ident',cols = c("blue", "red"), dot.scale = 8)+ RotatedAxis()
+ggsave('ln.dotplot.seurat.pdf', p, width=12, height=8)
+
+
+# hpv16
+hpv16ln1 <- Read10X('/tcga/tcga_ATAC_Seq/tcga_ATAC_Seq_processed_data/TCGA-CESC/cesc/sc/scRNA_Analyses/CellRanger_hpv16_out/190608A_2_linba/outs/filtered_feature_bc_matrix')
+hpv16ln2 <- Read10X('/tcga/tcga_ATAC_Seq/tcga_ATAC_Seq_processed_data/TCGA-CESC/cesc/sc/scRNA_Analyses/CellRanger_hpv16_out/190608B_L/outs/filtered_feature_bc_matrix')
+hpv16ln3 <- Read10X('/tcga/tcga_ATAC_Seq/tcga_ATAC_Seq_processed_data/TCGA-CESC/cesc/sc/scRNA_Analyses/CellRanger_hpv16_out/190608C_L/outs/filtered_feature_bc_matrix')
+colnames(hpv16ln1) <- paste0(colnames(hpv16ln1),'_1')
+colnames(hpv16ln2) <- paste0(colnames(hpv16ln2),'_2')
+colnames(hpv16ln3) <- paste0(colnames(hpv16ln3),'_3')
+hpv16 <- colnames(ln.combined) %in% c(colnames(hpv16ln1),colnames(hpv16ln2),colnames(hpv16ln3))
+ln.combined@meta.data$hpv16 <- hpv16
+summary(ln.combined@meta.data)
+p <- DimPlot(ln.combined, reduction = "umap", group.by = "hpv16",cols =c('grey','purple'))
+ggsave("ln_by_hpv16.pdf", p, width=5, height=4.5)
+p <- DimPlot(ln.combined, reduction = "umap", group.by = "hpv16",cols =c('grey','purple'),order='hpv16')
+ggsave("ln_by_hpv16_order.pdf", p, width=5, height=4.5)
+
+
+setwd('/liulab/zhezhang/project/CESC/scRNA/scRNA_Analyses/CellRanger_out/intergation/ln.all')
+# saveRDS(ln.combined,'ln.combined.rds')
+# saveRDS(cluster.markers.ln,'cluster.markers.ln.rds')
+ln.combined <- readRDS('ln.combined.rds')
+cluster.markers.ln <- readRDS('cluster.markers.ln.rds')
+
+# 3D plot
+# library(plotly)
+# library(htmlwidgets)
+# ln.combined <- readRDS('ln.combined.rds')
+# DefaultAssay(ln.combined) <- "integrated"
+# test <- RunUMAP(ln.combined, reduction = "pca", dims = 1:20,n.components=3L)
+# emb <- as.data.frame(Embeddings(object = test, reduction = "umap"))
+# color.use <- test@meta.data$zz.ident
+# p <- plot_ly(emb, x = ~UMAP_1, y = ~UMAP_2, z = ~UMAP_3, color = color.use,size = I(1))
+# htmlwidgets::saveWidget(p,'ln.html')
+
+
+library(infercnv)
+setwd('/liulab/zhezhang/project/CESC/scRNA/scRNA_Analyses/CellRanger_out/intergation')
+p1ln <- Read10X('/tcga/tcga_ATAC_Seq/tcga_ATAC_Seq_processed_data/TCGA-CESC/cesc/scRNA/scRNA_Analyses/CellRanger_out/190608A_2_linba/outs/filtered_feature_bc_matrix')
+p2ln <- Read10X('/tcga/tcga_ATAC_Seq/tcga_ATAC_Seq_processed_data/TCGA-CESC/cesc/scRNA/scRNA_Analyses/CellRanger_out/190608B_L/outs/filtered_feature_bc_matrix')
+p3ln <- Read10X('/tcga/tcga_ATAC_Seq/tcga_ATAC_Seq_processed_data/TCGA-CESC/cesc/scRNA/scRNA_Analyses/CellRanger_out/190608C_L/outs/filtered_feature_bc_matrix')
+colnames(p1ln) <- paste0(colnames(p1ln),'_1')
+colnames(p2ln) <- paste0(colnames(p2ln),'_2')
+colnames(p3ln) <- paste0(colnames(p3ln),'_3')
+ln.combined <- readRDS('/liulab/zhezhang/project/CESC/scRNA/scRNA_Analyses/CellRanger_out/intergation/ln.allln.combined.rds')
+epi <- colnames(ln.combined)[which(ln.combined@meta.data$zz.ident %in% c('SCC','Epithelium')=='TRUE')]
+raw_counts_matrix <- cbind(p1ln,p2ln,p3ln)
+raw_counts_matrix <- raw_counts_matrix[,epi]
+annotations_file <- cbind(epi, as.character(ln.combined@meta.data$zz.ident)[which(ln.combined@meta.data$zz.ident %in% c('SCC','Epithelium')=='TRUE')])
+write.table(annotations_file,'annotations_file.txt',sep='\t',quote = F,row.names=F, col.names=F)
+annotations_file <- '/liulab/zhezhang/project/CESC/scRNA/scRNA_Analyses/CellRanger_out/intergation/annotations_file.txt'
+gene_order_file <- '/liulab/CROPSEQ-scRNA/reference/human/inferCNV/gencode_v19_gene_pos.txt'
+infercnv_obj = CreateInfercnvObject(raw_counts_matrix=raw_counts_matrix,
+                                    annotations_file=annotations_file ,
+                                    delim="\t",
+                                    gene_order_file=gene_order_file,
+                                    ref_group_names='Epithelium')
+infercnv_obj = infercnv::run(infercnv_obj,
+                             cutoff=0,  # use 1 for smart-seq, 0.1 for 10x-genomics
+                             out_dir="infercnv_output_ln",  # dir is auto-created for storing outputs
+                             cluster_by_groups=T,   # cluster
+                             denoise=T,
+                             HMM=T
+                             )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+################################################## combined (primary tumor + lymph node)#########################################################
+# barplot should be integrated
+mat <- matrix(NA, length(summary(ca.combined@meta.data$zz.ident)), 3)
+mat[,1] <- names(summary(ca.combined@meta.data$zz.ident))
+mat[,2] <- 'ca'
+mat[,3] <- summary(ca.combined@meta.data$zz.ident)/ncol(ca.combined)
+mat <- as.data.frame(mat)
+colnames(mat) <- c('cell','condition','normalized_cell_count')
+mat1 <- mat
+mat <- matrix(NA, length(summary(ln.combined@meta.data$zz.ident)), 3)
+mat[,1] <- names(summary(ln.combined@meta.data$zz.ident))
+mat[,2] <- 'ln'
+mat[,3] <- summary(ln.combined@meta.data$zz.ident)/ncol(ln.combined)
+mat <- as.data.frame(mat)
+colnames(mat) <- c('cell','condition','normalized_cell_count')
+mat2 <- mat
+mat3 <- rbind(mat1,mat2)
+mat3$normalized_cell_count <- as.numeric(as.character(mat3$normalized_cell_count, digits=4))
+p <- ggplot(mat3,aes(cell, normalized_cell_count, fill=condition ) )+geom_bar(stat = 'identity')+theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),panel.background = element_blank(), 
+              axis.line = element_line(colour = "black"),axis.text.x = element_text(angle = 45, hjust = 1))+coord_flip()
+ggsave('ca_barplot_norm.pdf', p, width=6, height=4)
+p <- ggplot(mat3,aes(cell, normalized_cell_count, fill=condition ) )+geom_bar(stat = 'identity')+theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),panel.background = element_blank(), 
+              axis.line = element_line(colour = "black"),axis.text.x = element_text(angle = 45, hjust = 1))
+ggsave('ca_barplot_norm1.pdf', p, width=6, height=4)
+
+## integrated object for next diffenertial and pseudotime
+# ca.combined <- readRDS('ca.combined.rds')
+# cluster.markers.ca <- readRDS('cluster.markers.ca.rds')
+# ln.combined <- readRDS('ln.combined.rds')
+# cluster.markers.ln <- readRDS('cluster.markers.ln.rds')
+setwd('/liulab/zhezhang/project/CESC/scRNA/scRNA_Analyses/CellRanger_out/intergation_anchor')
+# p1ca <- Read10X('/tcga/tcga_ATAC_Seq/tcga_ATAC_Seq_processed_data/TCGA-CESC/cesc/scRNA/scRNA_Analyses/CellRanger_out/190608A_1_ai/outs/filtered_feature_bc_matrix')
+# p1ln <- Read10X('/tcga/tcga_ATAC_Seq/tcga_ATAC_Seq_processed_data/TCGA-CESC/cesc/scRNA/scRNA_Analyses/CellRanger_out/190608A_2_linba/outs/filtered_feature_bc_matrix')
+# p2ca <- Read10X('/tcga/tcga_ATAC_Seq/tcga_ATAC_Seq_processed_data/TCGA-CESC/cesc/scRNA/scRNA_Analyses/CellRanger_out/190608B_A/outs/filtered_feature_bc_matrix')
+# p2ln <- Read10X('/tcga/tcga_ATAC_Seq/tcga_ATAC_Seq_processed_data/TCGA-CESC/cesc/scRNA/scRNA_Analyses/CellRanger_out/190608B_L/outs/filtered_feature_bc_matrix')
+# p3ca <- Read10X('/tcga/tcga_ATAC_Seq/tcga_ATAC_Seq_processed_data/TCGA-CESC/cesc/scRNA/scRNA_Analyses/CellRanger_out/190608C_A/outs/filtered_feature_bc_matrix')
+# p3ln <- Read10X('/tcga/tcga_ATAC_Seq/tcga_ATAC_Seq_processed_data/TCGA-CESC/cesc/scRNA/scRNA_Analyses/CellRanger_out/190608C_L/outs/filtered_feature_bc_matrix')
+# p1ca <- p1ca[-grep('^MT-', rownames(p1ca)),]
+# p1ca <- CreateSeuratObject(counts = p1ca, project = "p1ca", min.cells = 3)
+# p1ca$stim <- "p1ca"
+# p1ca$patient <- "P1"
+# p1ca$ca_ln <- "CA"
+# p1ca <- subset(p1ca, subset = nFeature_RNA > 200)
+# p1ca <- NormalizeData(p1ca, verbose = FALSE)
+# p1ca <- FindVariableFeatures(p1ca, selection.method = "vst", nfeatures = 10000)
+# p1ln <- p1ln[-grep('^MT-', rownames(p1ln)),]
+# p1ln <- CreateSeuratObject(counts = p1ln, project = "p1ln", min.cells = 3)
+# p1ln$stim <- "p1ln"
+# p1ln$patient <- "P1"
+# p1ln$ca_ln <- "LN"
+# p1ln <- subset(p1ln, subset = nFeature_RNA > 200)
+# p1ln <- NormalizeData(p1ln, verbose = FALSE)
+# p1ln <- FindVariableFeatures(p1ln, selection.method = "vst", nfeatures = 10000)
+# p2ca <- p2ca[-grep('^MT-', rownames(p2ca)),]
+# p2ca <- CreateSeuratObject(counts = p2ca, project = "p2ca", min.cells = 3)
+# p2ca$stim <- "p2ca"
+# p2ca$patient <- "P2"
+# p2ca$ca_ln <- "CA"
+# p2ca <- subset(p2ca, subset = nFeature_RNA > 200)
+# p2ca <- NormalizeData(p2ca, verbose = FALSE)
+# p2ca <- FindVariableFeatures(p2ca, selection.method = "vst", nfeatures = 10000)
+# p2ln <- p2ln[-grep('^MT-', rownames(p2ln)),]
+# p2ln <- CreateSeuratObject(counts = p2ln, project = "p2ln", min.cells = 3)
+# p2ln$stim <- "p2ln"
+# p2ln$patient <- "P2"
+# p2ln$ca_ln <- "LN"
+# p2ln <- subset(p2ln, subset = nFeature_RNA > 200)
+# p2ln <- NormalizeData(p2ln, verbose = FALSE)
+# p2ln <- FindVariableFeatures(p2ln, selection.method = "vst", nfeatures = 10000)
+# p3ca <- p3ca[-grep('^MT-', rownames(p3ca)),]
+# p3ca <- CreateSeuratObject(counts = p3ca, project = "p3ca", min.cells = 3)
+# p3ca$stim <- "p3ca"
+# p3ca$patient <- "P3"
+# p3ca$ca_ln <- "CA"
+# p3ca <- subset(p3ca, subset = nFeature_RNA > 200)
+# p3ca <- NormalizeData(p3ca, verbose = FALSE)
+# p3ca <- FindVariableFeatures(p3ca, selection.method = "vst", nfeatures = 10000)
+# p3ln <- p3ln[-grep('^MT-', rownames(p3ln)),]
+# p3ln <- CreateSeuratObject(counts = p3ln, project = "p3ln", min.cells = 3)
+# p3ln$stim <- "p3ln"
+# p3ln$patient <- "P3"
+# p3ln$ca_ln <- "LN"
+# p3ln <- subset(p3ln, subset = nFeature_RNA > 200)
+# p3ln <- NormalizeData(p3ln, verbose = FALSE)
+# p3ln <- FindVariableFeatures(p3ln, selection.method = "vst", nfeatures = 10000)
+# # integration
+# all.anchors <- FindIntegrationAnchors(object.list = list(p1ca,p1ln,p2ca,p2ln,p3ca,p3ln), dims = 1:30,anchor.features = 10000)
+# all.combined <- IntegrateData(anchorset = all.anchors, dims = 1:35)
+# DefaultAssay(all.combined) <- "integrated"
+# all.combined <- ScaleData(all.combined, verbose = FALSE)
+# all.combined <- RunPCA(all.combined, verbose = FALSE)
+# all.combined <- RunUMAP(all.combined, reduction = "pca", dims = 1:35)
+# all.combined <- FindNeighbors(all.combined, reduction = "pca", dims = 1:35)
+# all.combined <- FindClusters(all.combined, resolution = 0.1)
+all.combined <- readRDS('cancer_anno.rds')
+ca.ident <- ca.combined$zz.ident
+ln.ident <- ln.combined$zz.ident
+all.ident <- c(as.character(ca.ident), as.character(ln.ident))
+names.ca <- gsub('1','1',colnames(ca.combined))
+names.ca <- gsub('3','5',names.ca)
+names.ca <- gsub('2','3',names.ca)
+names.ln <- gsub('2','4',colnames(ln.combined))
+names.ln <- gsub('1','2',names.ln)
+names.ln <- gsub('3','6',names.ln)
+names.all <- c(names.ca , names.ln)
+names(all.ident) <- names.all
+all.ident.sep <- c(paste0(as.character(ca.ident),'_ca'), paste0(as.character(ln.ident),'_ln'))
+names(all.ident.sep) <- names.all
+all.combined@meta.data$all.ident <- all.ident[colnames(all.combined)]
+all.combined@meta.data$all.ident.sep <- all.ident.sep[colnames(all.combined)]
+all.combined@meta.data$all.ident <- as.factor(all.combined@meta.data$all.ident)
+all.combined@meta.data$all.ident.sep <- as.factor(all.combined@meta.data$all.ident.sep)
+p <- DimPlot(all.combined, reduction = "umap", group.by = "all.ident",label = TRUE, repel=T)
+ggsave("all_ident_umap.pdf", p, width=5, height=4.5)
+p <- DimPlot(all.combined, reduction = "umap", group.by = "all.ident.sep",label = TRUE, repel=T)
+ggsave("all_ident_sep_umap.pdf", p, width=5, height=4.5)
+# save and read object
+saveRDS(all.combined, 'cancer.rds')
+all.combined <- readRDS('cancer.rds')
+
+
+
+## monocle 
+library(monocle)
+expr_matrix <- GetAssayData(object = all.combined)
+sample_sheet <- cbind(as.character(all.combined@meta.data$all.ident), as.character(all.combined@meta.data$all.ident.sep),
+	as.character(all.combined@meta.data$stim),as.character(all.combined@meta.data$hpv16),
+	as.character(all.combined@meta.data$patient),as.character(all.combined@meta.data$ca_ln))
+rownames(sample_sheet) <- colnames(all.combined)
+colnames(sample_sheet) <- c('all.ident','all.ident.sep','stim','hpv16','patient','ca_ln')
+gene_annotation <- as.data.frame(rownames(all.combined))
+rownames(gene_annotation) <- rownames(all.combined)
+colnames(gene_annotation) <- 'gene_short_name'
+pd <- new("AnnotatedDataFrame", data = as.data.frame(sample_sheet))
+fd <- new("AnnotatedDataFrame", data = as.data.frame(gene_annotation))
+HSMM <- newCellDataSet(as.matrix(expr_matrix), phenoData = pd, featureData = fd)
+saveRDS(HSMM, 'cancer_monocle.rds')
+obj.monocle <- readRDS('cancer_monocle.rds')
+
+## monocle3
+# not good tool, leave it.
+/liulab/wubing/Applications/miniconda3/bin/R
+library(monocle3)
+expr_matrix <- all.combined@assays$RNA@counts
+sample_sheet <- cbind(as.character(all.combined@meta.data$all.ident), as.character(all.combined@meta.data$all.ident.sep),
+	as.character(all.combined@meta.data$stim),as.character(all.combined@meta.data$hpv16),
+	as.character(all.combined@meta.data$patient),as.character(all.combined@meta.data$ca_ln))
+rownames(sample_sheet) <- colnames(expr_matrix)
+colnames(sample_sheet) <- c('all.ident','all.ident.sep','stim','hpv16','patient','ca_ln')
+gene_annotation <- as.data.frame(rownames(expr_matrix))
+rownames(gene_annotation) <- rownames(expr_matrix)
+colnames(gene_annotation) <- 'gene_short_name'
+# pd <- new("AnnotatedDataFrame", data = as.data.frame(sample_sheet))
+# fd <- new("AnnotatedDataFrame", data = as.data.frame(gene_annotation))
+cds <- new_cell_data_set(expr_matrix, cell_metadata = sample_sheet, gene_metadata = gene_annotation)
+saveRDS(cds, 'cancer_monocle3.rds')
+obj.monocle <- readRDS('cancer_monocle.rds')
+
+
+
+## velocity
+# conda activate /homes/zhezhang/miniconda2/envs/py3.7
+# module load samtools/1.9.1
+# velocyto run10x /liulab/zhezhang/project/CESC/scRNA/scRNA_Analyses/CellRanger_out/190608A_1_ai /liulab/CROPSEQ-scRNA/reference/human/refdata-cellranger-hg38-1.2.0/genes/genes.gtf
+# velocyto run10x /liulab/zhezhang/project/CESC/scRNA/scRNA_Analyses/CellRanger_out/190608A_2_linba /liulab/CROPSEQ-scRNA/reference/human/refdata-cellranger-hg38-1.2.0/genes/genes.gtf
+# velocyto run10x /liulab/zhezhang/project/CESC/scRNA/scRNA_Analyses/CellRanger_out/190608B_A /liulab/CROPSEQ-scRNA/reference/human/refdata-cellranger-hg38-1.2.0/genes/genes.gtf
+# velocyto run10x /liulab/zhezhang/project/CESC/scRNA/scRNA_Analyses/CellRanger_out/190608B_L /liulab/CROPSEQ-scRNA/reference/human/refdata-cellranger-hg38-1.2.0/genes/genes.gtf
+# velocyto run10x /liulab/zhezhang/project/CESC/scRNA/scRNA_Analyses/CellRanger_out/190608C_A /liulab/CROPSEQ-scRNA/reference/human/refdata-cellranger-hg38-1.2.0/genes/genes.gtf
+# velocyto run10x /liulab/zhezhang/project/CESC/scRNA/scRNA_Analyses/CellRanger_out/190608C_L /liulab/CROPSEQ-scRNA/reference/human/refdata-cellranger-hg38-1.2.0/genes/genes.gtf
+
+
